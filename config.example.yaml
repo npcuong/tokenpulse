@@ -1,0 +1,49 @@
+# TokenPulse — Configuration
+# Copy this file to ~/.config/tokenpulse/config.yaml and fill in your values.
+# Run: cp config.example.yaml ~/.config/tokenpulse/config.yaml
+
+# How often to fetch usage data (seconds). Default: 5 minutes.
+refresh_interval: 300
+
+# Alert threshold (percent). Default: 80.
+warning_threshold: 80
+
+providers:
+
+  # ────────────────────────────────────────────────────────────────
+  # Claude (Anthropic)
+  # mode: "manual"  → you enter used_tokens yourself (check console.anthropic.com/settings/usage)
+  # mode: "api"     → tries Anthropic usage API with your key (experimental)
+  # ────────────────────────────────────────────────────────────────
+  claude:
+    enabled: true
+    mode: manual           # "manual" | "api"
+    api_key: ""            # your Anthropic API key (sk-ant-...)
+    limit_tokens: 1000000  # your monthly token limit
+    used_tokens: 0         # update this from your dashboard, or use "Edit Usage" menu
+
+  # ────────────────────────────────────────────────────────────────
+  # ChatGPT (OpenAI)
+  # mode: "api"    → fetches billing usage automatically (requires API key)
+  # mode: "manual" → set used_usd yourself
+  # Check usage at: https://platform.openai.com/account/usage
+  # ────────────────────────────────────────────────────────────────
+  openai:
+    enabled: true
+    mode: api              # "api" | "manual"
+    api_key: ""            # your OpenAI API key (sk-...)
+    limit_usd: 20.00       # your monthly spending limit (USD)
+    used_usd: 0.00         # only used in manual mode
+
+  # ────────────────────────────────────────────────────────────────
+  # Gemini (Google)
+  # mode: "manual"    → set used_tokens yourself (check aistudio.google.com)
+  # mode: "quota_api" → uses Google Cloud Monitoring API (Vertex AI users)
+  # ────────────────────────────────────────────────────────────────
+  gemini:
+    enabled: true
+    mode: manual           # "manual" | "quota_api"
+    api_key: ""            # Google AI API key (for quota_api mode)
+    gcp_project: ""        # GCP project ID (for quota_api mode)
+    limit_tokens: 1000000  # your monthly token limit
+    used_tokens: 0         # update from your dashboard, or use "Edit Usage" menu
