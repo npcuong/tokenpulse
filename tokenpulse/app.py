@@ -9,9 +9,9 @@ import rumps
 from .config import Config
 from .providers import get_providers
 from .providers.base import UsageData
+from .proxy import ProxyManager
 from .storage import Storage
 
-# Provider icons (menu bar title)
 ICONS = {"claude": "C", "openai": "G", "gemini": "✦"}
 PROVIDER_LABELS = {"claude": "Claude", "openai": "ChatGPT", "gemini": "Gemini"}
 
@@ -22,67 +22,82 @@ class TokenPulseApp(rumps.App):
 
         self.config = Config()
         self.storage = Storage()
-        self.providers = get_providers(self.config)
+        self.providers = get_providers(self.config._data, storage=self.storage)
 
-        # Track which providers already triggered 80% notification
         self._alerted: set = set()
         self._usage: Dict[str, UsageData] = {}
+        self._proxy_urls: dict[str, str] = {}
+
+        # Start proxy servers for providers in proxy mode
+        self._proxy_manager = ProxyManager(
+            config=self.config._data,
+            on_tokens=self.storage.increment_usage,
+        )
+        active_proxies = self._proxy_manager.start_all()
+        for provider, port in active_proxies.items():
+            self._proxy_urls[provider] = f"http://127.0.0.1:{port}"
 
         self._build_menu()
-
-        # Initial fetch (non-blocking)
         threading.Thread(target=self._refresh, daemon=True).start()
 
-        # Periodic refresh timer
         self._timer = rumps.Timer(
             lambda _: threading.Thread(target=self._refresh, daemon=True).start(),
             self.config.refresh_interval,
         )
         self._timer.start()
 
-    # ── Menu construction ─────────────────────────────────────────────────────
+    # ── Menu ─────────────────────────────────────────────────────────────────
 
     def _build_menu(self):
         self.menu.clear()
 
-        # Placeholder items for each provider (updated in _update_menu_items)
         for key in PROVIDER_LABELS:
             if key in self.providers:
-                self.menu.add(rumps.MenuItem(PROVIDER_LABELS[key], callback=None))
-
-        self.menu.add(None)  # separator
-
-        refresh_item = rumps.MenuItem("↻  Refresh Now", callback=self.on_refresh)
-        self.menu.add(refresh_item)
+                self.menu.add(rumps.MenuItem(PROVIDER_LABELS[key]))
 
         self.menu.add(None)
+        self.menu.add(rumps.MenuItem("↻  Refresh Now", callback=self.on_refresh))
+        self.menu.add(None)
 
-        # Per-provider dashboard links
+        # Dashboard links
         dashboards = rumps.MenuItem("Open Dashboard")
         for key, provider in self.providers.items():
-            item = rumps.MenuItem(
-                PROVIDER_LABELS[key],
-                callback=lambda _, url=provider.dashboard_url: self._open_url(url),
+            dashboards.add(
+                rumps.MenuItem(
+                    PROVIDER_LABELS[key],
+                    callback=lambda _, u=provider.dashboard_url: self._open(u),
+                )
             )
-            dashboards.add(item)
         self.menu.add(dashboards)
 
-        # Manual usage editing (for manual-mode providers)
+        # Edit usage (manual mode providers)
         edit_menu = rumps.MenuItem("Edit Usage")
         for key in self.providers:
-            label = PROVIDER_LABELS[key]
-            item = rumps.MenuItem(
-                label,
-                callback=lambda _, k=key: self.on_edit_usage(k),
+            edit_menu.add(
+                rumps.MenuItem(
+                    PROVIDER_LABELS[key],
+                    callback=lambda _, k=key: self.on_edit_usage(k),
+                )
             )
-            edit_menu.add(item)
         self.menu.add(edit_menu)
+
+        # Proxy setup info
+        if self._proxy_urls:
+            proxy_menu = rumps.MenuItem("Proxy Setup")
+            for provider, url in self._proxy_urls.items():
+                proxy_menu.add(
+                    rumps.MenuItem(
+                        f"{PROVIDER_LABELS[provider]}: {url}",
+                        callback=lambda _, u=url: self._copy_to_clipboard(u),
+                    )
+                )
+            self.menu.add(proxy_menu)
 
         self.menu.add(None)
         self.menu.add(rumps.MenuItem("About TokenPulse", callback=self.on_about))
         self.menu.add(rumps.MenuItem("Quit", callback=rumps.quit_application))
 
-    # ── Refresh logic ─────────────────────────────────────────────────────────
+    # ── Refresh ───────────────────────────────────────────────────────────────
 
     def _refresh(self):
         new_usage: Dict[str, UsageData] = {}
@@ -90,14 +105,11 @@ class TokenPulseApp(rumps.App):
             try:
                 new_usage[key] = provider.fetch_usage()
             except Exception as e:
-                from .providers.base import UsageData
-
                 new_usage[key] = UsageData(
                     provider=key,
                     display_name=PROVIDER_LABELS[key],
                     error=str(e),
                 )
-
         self._usage = new_usage
         self._update_title()
         self._update_menu_items()
@@ -107,42 +119,36 @@ class TokenPulseApp(rumps.App):
         if not self._usage:
             self.title = "🔮 —"
             return
-
         parts = []
         has_warning = False
-
         for key in ["claude", "openai", "gemini"]:
             if key not in self._usage:
                 continue
             data = self._usage[key]
-            icon = ICONS[key]
             if data.error:
-                parts.append(f"{icon}:?")
+                parts.append(f"{ICONS[key]}:?")
                 continue
             pct = data.percent
             if pct >= 80:
                 has_warning = True
-            parts.append(f"{icon}:{pct:.0f}%")
-
+            parts.append(f"{ICONS[key]}:{pct:.0f}%")
         prefix = "⚠️ " if has_warning else "🔮 "
         self.title = prefix + "  ".join(parts)
 
     def _update_menu_items(self):
-        threshold = self.config.warning_threshold
         for key, data in self._usage.items():
             label = PROVIDER_LABELS[key]
             if label not in self.menu:
                 continue
-
             if data.error:
-                self.menu[label].title = f"{data.status_emoji} {label}: Error — {data.error}"
+                self.menu[label].title = f"❓ {label}: {data.error}"
                 continue
-
             pct = data.percent
             bar = _make_bar(pct)
             detail = _format_detail(data)
+            mode_tag = f" [{data.source}]" if data.source in ("proxy", "api") else ""
             self.menu[label].title = (
-                f"{data.status_emoji} {label}  {bar}  {pct:.1f}%  {detail}"
+                f"{data.status_emoji} {label}{mode_tag}  {bar}  {pct:.1f}%  {detail}"
             )
 
     def _check_notifications(self):
@@ -154,15 +160,11 @@ class TokenPulseApp(rumps.App):
                 self._alerted.add(key)
                 rumps.notification(
                     title="TokenPulse ⚠️",
-                    subtitle=f"{data.display_name} usage at {data.percent:.1f}%",
-                    message=(
-                        f"You've used {data.percent:.1f}% of your monthly limit. "
-                        f"Check your dashboard."
-                    ),
+                    subtitle=f"{data.display_name} at {data.percent:.1f}%",
+                    message=f"You've used {data.percent:.1f}% of your limit. Check your dashboard.",
                     sound=True,
                 )
-            elif data.percent < threshold and key in self._alerted:
-                # Reset alert if usage drops (e.g. new billing cycle)
+            elif data.percent < threshold:
                 self._alerted.discard(key)
 
     # ── Callbacks ─────────────────────────────────────────────────────────────
@@ -178,7 +180,7 @@ class TokenPulseApp(rumps.App):
         current_val = current.used if current and not current.error else 0
 
         window = rumps.Window(
-            message=f"Enter current token usage for {label}:",
+            message=f"Enter current token count for {label}:",
             title=f"Edit {label} Usage",
             default_text=str(current_val),
             ok="Save",
@@ -188,30 +190,43 @@ class TokenPulseApp(rumps.App):
         resp = window.run()
         if resp.clicked and resp.text.strip().isdigit():
             tokens = int(resp.text.strip())
-            self.storage.set_manual_usage(provider_key, tokens)
-            # Patch live config for next refresh
-            self.providers[provider_key].config["used_tokens"] = tokens
+            provider = self.providers.get(provider_key)
+            if hasattr(provider, "set_manual_usage"):
+                provider.set_manual_usage(tokens)
             threading.Thread(target=self._refresh, daemon=True).start()
 
     def on_about(self, _):
+        proxy_info = ""
+        if self._proxy_urls:
+            lines = "\n".join(
+                f"  {PROVIDER_LABELS[k]}: {u}" for k, u in self._proxy_urls.items()
+            )
+            proxy_info = f"\n\nProxy endpoints (auto-counting):\n{lines}"
+
         rumps.alert(
             title="TokenPulse",
             message=(
                 "🔮 TokenPulse — AI token usage tracker\n\n"
                 "Track Claude, ChatGPT & Gemini usage\n"
-                "right from your macOS menu bar.\n\n"
-                "github.com/YOUR_USERNAME/tokenpulse"
+                "right from your macOS menu bar."
+                f"{proxy_info}\n\n"
+                "github.com/npcuong/tokenpulse"
             ),
         )
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _open_url(url: str):
+    def _open(url: str):
         subprocess.Popen(["open", url])
 
+    @staticmethod
+    def _copy_to_clipboard(text: str):
+        subprocess.run(["pbcopy"], input=text.encode(), check=False)
+        rumps.notification("TokenPulse", "Copied!", text, sound=False)
 
-# ── Utility functions ─────────────────────────────────────────────────────────
+
+# ── Utility ───────────────────────────────────────────────────────────────────
 
 
 def _make_bar(pct: float, width: int = 10) -> str:
@@ -221,12 +236,10 @@ def _make_bar(pct: float, width: int = 10) -> str:
 
 def _format_detail(data: UsageData) -> str:
     if data.limit > 0:
-        used_k = data.used / 1000
-        limit_k = data.limit / 1000
-        return f"({used_k:.0f}k / {limit_k:.0f}k tokens)"
+        return f"({data.used / 1000:.0f}k / {data.limit / 1000:.0f}k tokens)"
     if data.cost_limit > 0:
         return f"(${data.cost_used:.2f} / ${data.cost_limit:.2f})"
-    return ""
+    return f"({data.used / 1000:.0f}k tokens)"
 
 
 def run():

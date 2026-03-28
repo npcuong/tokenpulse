@@ -1,118 +1,62 @@
 """
 Google Gemini usage provider.
 
-Supports two modes:
-  1. quota_api — uses Google Cloud API to check quota consumption
-                 (requires a service account or gcloud credentials)
-  2. manual    — user enters current usage manually in config or via menu
+Modes:
+  proxy  — run a local HTTP proxy; point your SDK to http://127.0.0.1:7779
+           and every API call is counted automatically.
+  manual — enter used_tokens yourself (from aistudio.google.com)
 
-Google AI Studio free tier does not expose a usage REST endpoint.
-For paid Vertex AI users, quota monitoring is via Cloud Monitoring API.
+Google AI Studio (AIzaSy... API keys) does NOT expose accumulated usage via REST.
+The Cloud Monitoring API for Vertex AI requires OAuth2 service accounts, not API keys.
+The proxy mode is the recommended approach for auto-counting.
 
-Dashboard: https://aistudio.google.com/  (free tier)
-           https://console.cloud.google.com/apis/api/generativelanguage.googleapis.com
+Proxy setup (one-time):
+  # google-generativeai SDK
+  import google.generativeai as genai
+  from google.api_core.client_options import ClientOptions
+  genai.configure(
+      api_key="YOUR_KEY",
+      client_options=ClientOptions(api_endpoint="127.0.0.1:7779"),
+      transport="rest",
+  )
+
+  # Or set env var for HTTP client override
+  export GOOGLE_AI_BASE_URL=http://127.0.0.1:7779
+
+Time frame:
+  - AI Studio free tier: daily quota (tokens/min, requests/day)
+  - Paid / Vertex AI:    monthly quota
+  Set reset_period: "daily" or "monthly" in config (default: daily).
+
+Dashboard: https://aistudio.google.com/
 """
 
-from typing import Optional
-
-import requests
-
 from .base import BaseProvider, UsageData
+
+DASHBOARD = "https://aistudio.google.com/"
 
 
 class GeminiProvider(BaseProvider):
     DISPLAY_NAME = "Gemini"
-    DASHBOARD = "https://aistudio.google.com/"
+
+    def __init__(self, config: dict, storage=None):
+        super().__init__(config)
+        self._storage = storage
 
     @property
     def dashboard_url(self) -> str:
-        project = self.config.get("gcp_project")
-        if project:
-            return (
-                f"https://console.cloud.google.com/apis/api/"
-                f"generativelanguage.googleapis.com/quotas?project={project}"
-            )
-        return self.DASHBOARD
+        return DASHBOARD
 
     def fetch_usage(self) -> UsageData:
-        mode = self.config.get("mode", "manual")
-
-        if mode == "quota_api":
-            result = self._fetch_quota_api()
-            if result:
-                return result
-
-        # Manual / config-based fallback
-        used = self.config.get("used_tokens", 0)
-        limit = self.limit or self.config.get("limit_tokens", 0)
-
+        used = self._storage.get_monthly_usage("gemini") if self._storage else 0
         return UsageData(
             provider="gemini",
             display_name=self.DISPLAY_NAME,
             used=used,
-            limit=limit,
-            source="manual",
+            limit=self.limit,
+            source="proxy" if self.config.get("mode") == "proxy" else "manual",
         )
 
-    # ── private ──────────────────────────────────────────────────────────────
-
-    def _fetch_quota_api(self) -> Optional[UsageData]:
-        """
-        Uses Google Cloud Monitoring API to fetch Gemini quota usage.
-        Requires GOOGLE_APPLICATION_CREDENTIALS or api_key in config.
-        """
-        project = self.config.get("gcp_project")
-        api_key = self.api_key
-
-        if not project or not api_key:
-            return None
-
-        try:
-            # Cloud Monitoring timeseries for Gemini quota
-            url = (
-                f"https://monitoring.googleapis.com/v3/projects/{project}"
-                f"/timeSeries"
-            )
-            resp = requests.get(
-                url,
-                params={
-                    "filter": (
-                        'metric.type="serviceruntime.googleapis.com/quota/rate/net_usage"'
-                        ' AND resource.labels.service="generativelanguage.googleapis.com"'
-                    ),
-                    "interval.startTime": _month_start_rfc3339(),
-                    "interval.endTime": _now_rfc3339(),
-                },
-                headers={"Authorization": f"Bearer {api_key}"},
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                series = resp.json().get("timeSeries", [])
-                if series:
-                    points = series[0].get("points", [])
-                    if points:
-                        used = int(points[0].get("value", {}).get("int64Value", 0))
-                        return UsageData(
-                            provider="gemini",
-                            display_name=self.DISPLAY_NAME,
-                            used=used,
-                            limit=self.limit,
-                            source="api",
-                        )
-        except Exception:
-            pass
-
-        return None
-
-
-def _now_rfc3339() -> str:
-    from datetime import datetime, timezone
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _month_start_rfc3339() -> str:
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc)
-    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).strftime(
-        "%Y-%m-%dT%H:%M:%SZ"
-    )
+    def set_manual_usage(self, tokens: int) -> None:
+        if self._storage:
+            self._storage.set_manual_usage("gemini", tokens)

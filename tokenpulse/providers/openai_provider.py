@@ -1,15 +1,15 @@
 """
 OpenAI / ChatGPT usage provider.
 
-Uses OpenAI's billing dashboard API:
-  GET /v1/dashboard/billing/subscription  → hard_limit_usd
-  GET /v1/dashboard/billing/usage         → total_usage (cents)
+Mode: api (auto) — fetches billing usage from OpenAI's dashboard API.
+  Endpoints used:
+    GET /v1/dashboard/billing/subscription → hard_limit_usd
+    GET /v1/dashboard/billing/usage        → total_usage (cents, current month)
 
-These endpoints require an API key with billing read access.
-If they return 404 (deprecated for some plan types), falls back to manual mode.
+  Works with any standard OpenAI API key (sk-...).
+  Dashboard: https://platform.openai.com/account/usage
 
-Set mode: "manual" and used_usd / limit_usd in config for manual tracking.
-Dashboard: https://platform.openai.com/account/usage
+Mode: manual — set used_usd + limit_usd in config.
 """
 
 from datetime import datetime, timezone, timedelta
@@ -19,69 +19,64 @@ import requests
 
 from .base import BaseProvider, UsageData
 
+_BASE = "https://api.openai.com/v1"
+
 
 class OpenAIProvider(BaseProvider):
     DISPLAY_NAME = "ChatGPT"
     DASHBOARD = "https://platform.openai.com/account/usage"
-    _BASE = "https://api.openai.com/v1"
 
     @property
     def dashboard_url(self) -> str:
         return self.DASHBOARD
 
     def fetch_usage(self) -> UsageData:
-        mode = self.config.get("mode", "api")
-
-        if mode == "api" and self.api_key:
-            result = self._fetch_from_api()
+        if self.api_key and self.config.get("mode", "api") == "api":
+            result = self._fetch_billing()
             if result:
                 return result
 
         # Manual fallback
-        used_usd = self.config.get("used_usd", 0.0)
-        limit_usd = self.cost_limit or self.config.get("limit_usd", 0.0)
         return UsageData(
             provider="openai",
             display_name=self.DISPLAY_NAME,
-            used=0,
-            limit=0,
-            cost_used=used_usd,
-            cost_limit=limit_usd,
+            cost_used=self.config.get("used_usd", 0.0),
+            cost_limit=self.cost_limit,
             source="manual",
         )
 
     # ── private ──────────────────────────────────────────────────────────────
 
-    def _fetch_from_api(self) -> Optional[UsageData]:
+    def _fetch_billing(self) -> Optional[UsageData]:
         headers = {"Authorization": f"Bearer {self.api_key}"}
 
-        # Get subscription limit
-        limit_usd = 0.0
+        # ── 1. Get hard limit ────────────────────────────────────────────────
+        limit_usd = self.cost_limit
         try:
-            sub_resp = requests.get(
-                f"{self._BASE}/dashboard/billing/subscription",
+            sub = requests.get(
+                f"{_BASE}/dashboard/billing/subscription",
                 headers=headers,
                 timeout=8,
             )
-            if sub_resp.status_code == 200:
-                limit_usd = sub_resp.json().get("hard_limit_usd", 0.0)
-            elif sub_resp.status_code in (401, 403):
+            if sub.status_code == 200:
+                limit_usd = float(sub.json().get("hard_limit_usd", 0) or 0)
+            elif sub.status_code in (401, 403):
                 return UsageData(
                     provider="openai",
                     display_name=self.DISPLAY_NAME,
-                    error="Invalid API key or insufficient permissions",
+                    error="Invalid API key or no billing access",
                 )
         except Exception:
             return None
 
-        # Get usage for current billing cycle (current month)
+        # ── 2. Get usage for current billing month ────────────────────────────
         now = datetime.now(timezone.utc)
         start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         end = now + timedelta(days=1)
 
         try:
-            usage_resp = requests.get(
-                f"{self._BASE}/dashboard/billing/usage",
+            usage = requests.get(
+                f"{_BASE}/dashboard/billing/usage",
                 headers=headers,
                 params={
                     "start_date": start.strftime("%Y-%m-%d"),
@@ -89,16 +84,12 @@ class OpenAIProvider(BaseProvider):
                 },
                 timeout=8,
             )
-            if usage_resp.status_code == 200:
-                # total_usage is in cents
-                total_cents = usage_resp.json().get("total_usage", 0)
-                cost_used = total_cents / 100.0
+            if usage.status_code == 200:
+                cents = usage.json().get("total_usage", 0) or 0
                 return UsageData(
                     provider="openai",
                     display_name=self.DISPLAY_NAME,
-                    used=0,
-                    limit=0,
-                    cost_used=cost_used,
+                    cost_used=cents / 100.0,
                     cost_limit=limit_usd or self.cost_limit,
                     source="api",
                 )

@@ -1,49 +1,66 @@
 # TokenPulse — Configuration
-# Copy this file to ~/.config/tokenpulse/config.yaml and fill in your values.
-# Run: cp config.example.yaml ~/.config/tokenpulse/config.yaml
+# Copy to ~/.config/tokenpulse/config.yaml and fill in your values.
 
-# How often to fetch usage data (seconds). Default: 5 minutes.
-refresh_interval: 300
-
-# Alert threshold (percent). Default: 80.
-warning_threshold: 80
+refresh_interval: 300     # seconds between auto-refresh (default: 5 min)
+warning_threshold: 80     # percent at which to send notification
 
 providers:
 
-  # ────────────────────────────────────────────────────────────────
+  # ────────────────────────────────────────────────────────────────────────────
   # Claude (Anthropic)
-  # mode: "manual"  → you enter used_tokens yourself (check console.anthropic.com/settings/usage)
-  # mode: "api"     → tries Anthropic usage API with your key (experimental)
-  # ────────────────────────────────────────────────────────────────
+  #
+  # mode: proxy  ← RECOMMENDED — starts a local proxy on port 7778.
+  #               Point your SDK here and tokens are counted automatically.
+  #               export ANTHROPIC_BASE_URL=http://127.0.0.1:7778
+  #               # or in Python:
+  #               # client = anthropic.Anthropic(base_url="http://127.0.0.1:7778")
+  #
+  # mode: manual ← enter used_tokens yourself after checking:
+  #               https://console.anthropic.com/settings/usage
+  # ────────────────────────────────────────────────────────────────────────────
   claude:
     enabled: true
-    mode: manual           # "manual" | "api"
-    api_key: ""            # your Anthropic API key (sk-ant-...)
+    mode: proxy            # "proxy" | "manual"
+    api_key: ""            # sk-ant-... (forwarded by proxy to real API)
+    proxy_port: 7778       # only used in proxy mode
     limit_tokens: 1000000  # your monthly token limit
-    used_tokens: 0         # update this from your dashboard, or use "Edit Usage" menu
+    used_tokens: 0         # only used in manual mode
 
-  # ────────────────────────────────────────────────────────────────
+  # ────────────────────────────────────────────────────────────────────────────
   # ChatGPT (OpenAI)
-  # mode: "api"    → fetches billing usage automatically (requires API key)
-  # mode: "manual" → set used_usd yourself
-  # Check usage at: https://platform.openai.com/account/usage
-  # ────────────────────────────────────────────────────────────────
+  #
+  # mode: api  ← RECOMMENDED — fetches real monthly usage from OpenAI billing.
+  #             Only requires a standard API key (sk-...).
+  #             Dashboard: https://platform.openai.com/account/usage
+  #
+  # mode: manual ← set used_usd yourself
+  # ────────────────────────────────────────────────────────────────────────────
   openai:
     enabled: true
     mode: api              # "api" | "manual"
-    api_key: ""            # your OpenAI API key (sk-...)
+    api_key: ""            # sk-... (used directly, no proxy needed)
     limit_usd: 20.00       # your monthly spending limit (USD)
     used_usd: 0.00         # only used in manual mode
 
-  # ────────────────────────────────────────────────────────────────
-  # Gemini (Google)
-  # mode: "manual"    → set used_tokens yourself (check aistudio.google.com)
-  # mode: "quota_api" → uses Google Cloud Monitoring API (Vertex AI users)
-  # ────────────────────────────────────────────────────────────────
+  # ────────────────────────────────────────────────────────────────────────────
+  # Gemini (Google AI)
+  #
+  # mode: proxy  ← RECOMMENDED — starts a local proxy on port 7779.
+  #               Point your SDK here and tokens are counted automatically.
+  #               import google.generativeai as genai
+  #               from google.api_core.client_options import ClientOptions
+  #               genai.configure(
+  #                   api_key="YOUR_KEY",
+  #                   client_options=ClientOptions(api_endpoint="127.0.0.1:7779"),
+  #                   transport="rest",
+  #               )
+  #
+  # mode: manual ← enter used_tokens yourself from aistudio.google.com
+  # ────────────────────────────────────────────────────────────────────────────
   gemini:
     enabled: true
-    mode: manual           # "manual" | "quota_api"
-    api_key: ""            # Google AI API key (for quota_api mode)
-    gcp_project: ""        # GCP project ID (for quota_api mode)
-    limit_tokens: 1000000  # your monthly token limit
-    used_tokens: 0         # update from your dashboard, or use "Edit Usage" menu
+    mode: proxy            # "proxy" | "manual"
+    api_key: ""            # AIzaSy... (forwarded by proxy to real API)
+    proxy_port: 7779       # only used in proxy mode
+    limit_tokens: 1000000  # your monthly/daily token limit
+    used_tokens: 0         # only used in manual mode
