@@ -26,6 +26,10 @@ class OpenAIProvider(BaseProvider):
     DISPLAY_NAME = "ChatGPT"
     DASHBOARD = "https://platform.openai.com/account/usage"
 
+    def __init__(self, config: dict, storage=None):
+        super().__init__(config, storage=storage)
+        self._storage = storage
+
     @property
     def dashboard_url(self) -> str:
         return self.DASHBOARD
@@ -35,6 +39,24 @@ class OpenAIProvider(BaseProvider):
             result = self._fetch_billing()
             if result:
                 return result
+
+        # Extension-provided cost fallback
+        ext_cost = (
+            self._storage.get("openai_cost_used")
+            if self._storage is not None
+            else None
+        )
+        if ext_cost is not None:
+            ext_limit = (
+                self._storage.get("openai_cost_limit") or self.cost_limit
+            ) if self._storage is not None else self.cost_limit
+            return UsageData(
+                provider="openai",
+                display_name=self.DISPLAY_NAME,
+                cost_used=float(ext_cost),
+                cost_limit=float(ext_limit),
+                source="extension",
+            )
 
         # Manual fallback
         return UsageData(

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TokenPulse</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="container">
+
+    <!-- Header -->
+    <header class="header">
+      <div class="logo">
+        <span class="logo-icon">⚡</span>
+        <span class="logo-text">TokenPulse</span>
+      </div>
+      <div id="app-status" class="app-status status-checking">
+        <span class="status-dot"></span>
+        <span class="status-label">Checking…</span>
+      </div>
+    </header>
+
+    <!-- Provider cards -->
+    <div class="providers">
+
+      <!-- Claude -->
+      <div class="provider-card" id="card-claude">
+        <div class="provider-header">
+          <span class="provider-icon">🔮</span>
+          <div class="provider-meta">
+            <span class="provider-name">Claude</span>
+            <span class="provider-updated" id="updated-claude">—</span>
+          </div>
+          <a class="dashboard-link" href="https://console.anthropic.com/settings/usage" target="_blank" title="Open dashboard">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+              <polyline points="15 3 21 3 21 9"/>
+              <line x1="10" y1="14" x2="21" y2="3"/>
+            </svg>
+          </a>
+        </div>
+        <div class="usage-bar-wrap">
+          <progress class="usage-bar" id="bar-claude" value="0" max="100"></progress>
+          <span class="usage-pct" id="pct-claude">—</span>
+        </div>
+        <div class="usage-numbers" id="nums-claude">No data yet</div>
+      </div>
+
+      <!-- ChatGPT / OpenAI -->
+      <div class="provider-card" id="card-openai">
+        <div class="provider-header">
+          <span class="provider-icon">💬</span>
+          <div class="provider-meta">
+            <span class="provider-name">ChatGPT</span>
+            <span class="provider-updated" id="updated-openai">—</span>
+          </div>
+          <a class="dashboard-link" href="https://platform.openai.com/account/usage" target="_blank" title="Open dashboard">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+              <polyline points="15 3 21 3 21 9"/>
+              <line x1="10" y1="14" x2="21" y2="3"/>
+            </svg>
+          </a>
+        </div>
+        <div class="usage-bar-wrap">
+          <progress class="usage-bar" id="bar-openai" value="0" max="100"></progress>
+          <span class="usage-pct" id="pct-openai">—</span>
+        </div>
+        <div class="usage-numbers" id="nums-openai">No data yet</div>
+      </div>
+
+      <!-- Gemini -->
+      <div class="provider-card" id="card-gemini">
+        <div class="provider-header">
+          <span class="provider-icon">✦</span>
+          <div class="provider-meta">
+            <span class="provider-name">Gemini</span>
+            <span class="provider-updated" id="updated-gemini">—</span>
+          </div>
+          <a class="dashboard-link" href="https://aistudio.google.com/" target="_blank" title="Open dashboard">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+              <polyline points="15 3 21 3 21 9"/>
+              <line x1="10" y1="14" x2="21" y2="3"/>
+            </svg>
+          </a>
+        </div>
+        <div class="usage-bar-wrap">
+          <progress class="usage-bar" id="bar-gemini" value="0" max="100"></progress>
+          <span class="usage-pct" id="pct-gemini">—</span>
+        </div>
+        <div class="usage-numbers" id="nums-gemini">No data yet</div>
+      </div>
+
+    </div><!-- /.providers -->
+
+    <!-- Footer -->
+    <footer class="footer">
+      <span>TokenPulse v0.1.0</span>
+      <button class="refresh-btn" id="btn-refresh" title="Refresh all dashboards">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"/>
+          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+        </svg>
+        Refresh
+      </button>
+    </footer>
+
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

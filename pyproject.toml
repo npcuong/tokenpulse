@@ -24,6 +24,7 @@ dependencies = [
 
 [project.scripts]
 tokenpulse = "tokenpulse.app:run"
+tokenpulse-setup = "tokenpulse.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/YOUR_USERNAME/tokenpulse"

@@ -2,6 +2,7 @@
 
 import subprocess
 import threading
+from pathlib import Path
 from typing import Dict
 
 import rumps
@@ -10,6 +11,7 @@ from .config import Config
 from .providers import get_providers
 from .providers.base import UsageData
 from .proxy import ProxyManager
+from .receiver import ExtensionReceiver
 from .storage import Storage
 
 ICONS = {"claude": "C", "openai": "G", "gemini": "✦"}
@@ -36,6 +38,17 @@ class TokenPulseApp(rumps.App):
         active_proxies = self._proxy_manager.start_all()
         for provider, port in active_proxies.items():
             self._proxy_urls[provider] = f"http://127.0.0.1:{port}"
+
+        # Start extension receiver
+        receiver_port = self.config._data.get("receiver_port", 7777)
+        self._receiver = ExtensionReceiver(
+            storage=self.storage,
+            on_update=lambda: threading.Thread(
+                target=self._refresh, daemon=True
+            ).start(),
+            port=receiver_port,
+        )
+        self._receiver.start()
 
         self._build_menu()
         threading.Thread(target=self._refresh, daemon=True).start()
@@ -94,6 +107,12 @@ class TokenPulseApp(rumps.App):
             self.menu.add(proxy_menu)
 
         self.menu.add(None)
+        self.menu.add(
+            rumps.MenuItem(
+                "Install Browser Extension",
+                callback=self.on_install_extension,
+            )
+        )
         self.menu.add(rumps.MenuItem("About TokenPulse", callback=self.on_about))
         self.menu.add(rumps.MenuItem("Quit", callback=rumps.quit_application))
 
@@ -194,6 +213,20 @@ class TokenPulseApp(rumps.App):
             if hasattr(provider, "set_manual_usage"):
                 provider.set_manual_usage(tokens)
             threading.Thread(target=self._refresh, daemon=True).start()
+
+    def on_install_extension(self, _):
+        extension_dir = Path(__file__).parent.parent / "extension"
+        if extension_dir.exists():
+            subprocess.Popen(["open", str(extension_dir)])
+        else:
+            rumps.alert(
+                title="Browser Extension",
+                message=(
+                    "Extension folder not found.\n\n"
+                    "Download the extension from:\n"
+                    "github.com/YOUR_USERNAME/tokenpulse"
+                ),
+            )
 
     def on_about(self, _):
         proxy_info = ""
